@@ -20,3 +20,7 @@ Help:
 Screenshot
 ----------
 ![prmck](screenshot.png)
+
+Video
+-----
+[ ![prmck](http://img.youtube.com/vi/X7UemeNxxrA/0.jpg) ](http://www.youtube.com/watch?v=X7UemeNxxrA)
