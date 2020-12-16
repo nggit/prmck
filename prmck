@@ -1,0 +1,137 @@
+#!/bin/sh
+# prmck - Fix File Permissions (For CRUX Linux).
+#
+# Copyright (c) 2020 nggit.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+RED='\033[1;91m'
+GREEN='\033[1;92m'
+BOLD='\033[1m'
+NORMAL='\033[0m'
+##################
+PKG=
+PKG_PREV=
+FIX=0
+SCAN=0
+COUNT=0
+FIXED=0
+
+for arg in "$@"; do
+    case $arg in
+        all)       arg="*";;
+        -f|--fix)  FIX=1;;
+        -h|--help) cat <<EOL
+prmck - https://github.com/nggit/prmck
+
+Usage:
+  prmck [options] <port>
+
+Options:
+  -f, --fix     fix file permissions.	without this option, prmck
+		will only list broken file permissions and ownership
+  -h, --help    see this help
+
+Port:
+  all, core, opt, etc.
+
+Note that the "-f" or "--fix" options will not also fix file ownership.
+EOL
+exit;;
+    esac
+done
+
+if [ -z "$arg" ]; then
+    echo 'prmck takes at least 1 argument. Use the "-h" or "--help" options for help.'
+    exit 22
+fi
+
+parse_mode() {
+    u=; g=; o=; s=
+    i=-1
+    for c in $( echo "$1" | grep -o . ); do
+        i=$(( i + 1 ))
+        [ $i -lt 1 ] && continue
+        [ "$c" = "-" ] && c=
+        if [ $i -lt 4 ]; then
+            u="$u$c"
+        elif [ $i -lt 7 ]; then
+            g="$g$c"
+        elif [ $i -lt 10 ]; then
+            o="$o$c"
+        fi
+    done
+    if [ -n "$u" ]; then
+        u="u=$u"
+        s=,
+    fi
+    if [ -n "$g" ]; then
+        g="${s}g=$g"
+        s=,
+    fi
+    if [ -n "$o" ]; then
+        o="${s}o=$o"
+        s=,
+    fi
+    printf '%s' "$u$g$o"
+}
+
+do_scan() {
+    while IFS= read -r line; do
+        file=/${line##*	}
+        file=${file%%$( printf '\t' )*}
+        [ -e "$file" ] || continue
+        mode_orig=${line%$( printf '\t' )*}
+        mode="$( stat -c "%A$( printf '\t' )%U/%G" "$file" | tr ST st )"
+        if [ "$mode" != "$mode_orig" ]; then
+            COUNT=$(( COUNT + 1 ))
+            printf '\r%b' "\033[2K"
+            if [ "$PKG" = "$PKG_PREV" ]; then
+                printf '%s\t%b\t%s\n' "$mode_orig" "$RED$mode$NORMAL" "$file"
+            else
+                printf '%b\n%s\t%b\t%s\n' "$BOLD$PKG:$NORMAL" "$mode_orig" "$RED$mode$NORMAL" "$file"
+                PKG_PREV=$PKG
+            fi
+            if [ $FIX -eq 1 ]; then
+                printf '%s' "Fix Results: "
+                if chmod "$( parse_mode "$mode_orig" )" "$file"; then
+                    printf '%b\n' "${GREEN}OK$NORMAL"
+                    FIXED=$(( FIXED + 1 ))
+                fi
+            fi
+        fi
+    done < "$1"
+}
+
+[ $FIX -gt 0 ] || echo "Info: Run prmck with fix mode OFF"
+
+port_dir=
+for prtdir in $( grep -i '^\s*prtdir' /etc/prt-get.conf | sed 's/prtdir//i; s/\s//g' ); do
+    prtdir=${prtdir%/*}
+    [ "$prtdir" = "$port_dir" ] && continue
+    [ "$arg" = "*" ] || [ -d "$prtdir/$arg" ] || { echo "${RED}Error$NORMAL: Invalid options or port"; exit 1; }
+    for PKG in $( prt-get listinst ); do
+        for footprint in "$prtdir"/$arg/"$PKG"/.footprint; do
+            [ -f "$footprint" ] || continue
+            SCAN=$(( SCAN + 1 ))
+            printf '%b' "${BOLD}Scanning:$NORMAL $PKG"
+            do_scan "$footprint"
+            printf '\r%b' "\033[2K"
+        done
+    done
+    port_dir=$prtdir
+done
+
+if [ $SCAN -lt 1 ]; then
+    printf '%b\n' "${RED}Error$NORMAL: The scan was never performed"
+    exit 1
+fi
+if [ $COUNT -gt 0 ]; then
+    [ $FIXED -gt 0 ] && FIXED="$GREEN$FIXED$NORMAL"
+    printf '%b\n' "Found $RED$COUNT$NORMAL files with broken permissions. $FIXED fixed."
+else
+    printf '%b\n' "${GREEN}Good$NORMAL. No problems were found."
+fi
