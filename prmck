@@ -76,7 +76,6 @@ parse_mode() {
     fi
     if [ -n "$o" ]; then
         o="${s}o=$o"
-        s=,
     fi
     printf '%s' "$u$g$o"
 }
