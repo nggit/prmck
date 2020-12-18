@@ -51,16 +51,18 @@ fi
 
 parse_mode() {
     u=; g=; o=; s=
-    i=-1
-    for c in $( echo "$1" | grep -o . ); do
-        i=$(( i + 1 ))
-        [ $i -lt 1 ] && continue
+    str=${1%$( printf '\t' )*}
+    while [ ${#str} -gt 0 ]; do
+        next=${str#?}
+        c=${str%$next}
+        str=$next
+        [ ${#str} -gt 8 ] && continue
         [ "$c" = "-" ] && c=
-        if [ $i -lt 4 ]; then
+        if [ ${#str} -gt 5 ]; then
             u="$u$c"
-        elif [ $i -lt 7 ]; then
+        elif [ ${#str} -gt 2 ]; then
             g="$g$c"
-        elif [ $i -lt 10 ]; then
+        else
             o="$o$c"
         fi
     done
