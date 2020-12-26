@@ -50,7 +50,7 @@ if [ -z "$arg" ]; then
 fi
 
 parse_mode() {
-    u=; g=; o=; s=
+    u=; g=; o=;
     str=${1%$( printf '\t' )*}
     while [ ${#str} -gt 0 ]; do
         next=${str#?}
@@ -58,26 +58,30 @@ parse_mode() {
         str=$next
         [ ${#str} -gt 8 ] && continue
         [ "$c" = "-" ] && c=
+        if [ ${#str} -eq 6 ] || [ ${#str} -eq 3 ]; then
+            if [ "$c" = "s" ]; then
+                c=xs
+            elif [ "$c" = "S" ]; then
+                c=s
+            else
+                c=$c-s
+            fi
+        elif [ ${#str} -eq 0 ]; then
+            if [ "$c" = "t" ]; then
+                c=xt
+            elif [ "$c" = "T" ]; then
+                c=t
+            fi
+        fi
         if [ ${#str} -gt 5 ]; then
-            u="$u$c"
+            u=$u$c
         elif [ ${#str} -gt 2 ]; then
-            g="$g$c"
+            g=$g$c
         else
-            o="$o$c"
+            o=$o$c
         fi
     done
-    if [ -n "$u" ]; then
-        u="u=$u"
-        s=,
-    fi
-    if [ -n "$g" ]; then
-        g="${s}g=$g"
-        s=,
-    fi
-    if [ -n "$o" ]; then
-        o="${s}o=$o"
-    fi
-    printf '%s' "$u$g$o"
+    printf '%s' "u=$u,g=$g,o=$o"
 }
 
 do_scan() {
@@ -86,7 +90,7 @@ do_scan() {
         file=${file%%$( printf '\t' )*}
         [ -e "$file" ] || continue
         mode_orig=${line%$( printf '\t' )*}
-        mode="$( stat -c "%A$( printf '\t' )%U/%G" "$file" | tr ST st )"
+        mode=$( stat -c "%A$( printf '\t' )%U/%G" "$file" )
         if [ "$mode" != "$mode_orig" ]; then
             COUNT=$(( COUNT + 1 ))
             printf '\r%b' "\033[2K"
