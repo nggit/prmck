@@ -86,8 +86,8 @@ parse_mode() {
 
 do_scan() {
     while IFS= read -r line; do
-        file=/${line##*	}
-        file=${file%%$( printf '\t' )*}
+        file=${line##*$( printf '\t' )}
+        file=/${file%% *}
         [ -e "$file" ] || continue
         mode_orig=${line%$( printf '\t' )*}
         mode=$( stat -c "%A$( printf '\t' )%U/%G" "$file" )
