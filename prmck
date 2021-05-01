@@ -1,44 +1,44 @@
-#!/bin/sh
-# prmck - Fix File Permissions (For CRUX Linux).
-#
+#!/usr/bin/env sh
+# SPDX-License-Identifier: GPL-2.0-or-later
+# prmck - Fix File Permissions (For CRUX / prt-get).
+# https://github.com/nggit/prmck
 # Copyright (c) 2020 nggit.
 #
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 2 of the License, or
-# (at your option) any later version.
-#
-RED='\033[1;91m'
-GREEN='\033[1;92m'
+RED='\033[91m'
+GREEN='\033[92m'
 BOLD='\033[1m'
 NORMAL='\033[0m'
 ##################
 PKG=
 PKG_PREV=
+PKG_SCANNED=0
+M_ERR_COUNT=0
+O_ERR_COUNT=0
 FIX=0
-SCAN=0
-COUNT=0
-FIXED=0
+M_FIXED=0
+O_FIXED=0
+S=s
 
 for arg in "$@"; do
     case $arg in
-        all)       arg="*";;
+        all)       arg='*';;
         -f|--fix)  FIX=1;;
-        -h|--help) cat <<EOL
+        -ff)       FIX=2;;
+        -h|--help) cat << EOL
 prmck - https://github.com/nggit/prmck
 
 Usage:
   prmck [options] <port>
 
 Options:
-  -f, --fix     fix file permissions.	without this option, prmck
-		will only list broken file permissions and ownership
+  -f, --fix     fix file permissions
+  -ff           fix file permissions and ownership
   -h, --help    see this help
 
 Port:
   all, core, opt, etc.
 
-Note that the "-f" or "--fix" options will not also fix file ownership.
+Example: prmck core, prmck -f core, etc.
 EOL
 exit;;
     esac
@@ -51,92 +51,145 @@ fi
 
 parse_mode() {
     u=; g=; o=;
-    str=${1%$( printf '\t' )*}
-    while [ ${#str} -gt 0 ]; do
-        next=${str#?}
-        c=${str%$next}
-        str=$next
-        [ ${#str} -gt 8 ] && continue
-        [ "$c" = "-" ] && c=
-        if [ ${#str} -eq 6 ] || [ ${#str} -eq 3 ]; then
-            if [ "$c" = "s" ]; then
+    mode=$1
+    while [ ${#mode} -gt 0 ]; do
+        next=${mode#?}
+        c=${mode%$next}
+        mode=$next
+        [ ${#mode} -gt 8 ] && continue
+        [ "$c" = '-' ] && c=
+        if [ ${#mode} -eq 6 ] || [ ${#mode} -eq 3 ]; then
+            if [ "$c" = 's' ]; then
                 c=xs
-            elif [ "$c" = "S" ]; then
+            elif [ "$c" = 'S' ]; then
                 c=s
             else
                 c=$c-s
             fi
-        elif [ ${#str} -eq 0 ]; then
-            if [ "$c" = "t" ]; then
+        elif [ ${#mode} -eq 0 ]; then
+            if [ "$c" = 't' ]; then
                 c=xt
-            elif [ "$c" = "T" ]; then
+            elif [ "$c" = 'T' ]; then
                 c=t
             fi
         fi
-        if [ ${#str} -gt 5 ]; then
+        if [ ${#mode} -gt 5 ]; then
             u=$u$c
-        elif [ ${#str} -gt 2 ]; then
+        elif [ ${#mode} -gt 2 ]; then
             g=$g$c
         else
             o=$o$c
         fi
     done
-    printf '%s' "u=$u,g=$g,o=$o"
+    printf 'u=%s,g=%s,o=%s' "$u" "$g" "$o"
+}
+
+parse_owner() {
+    owner=$1
+    printf '%s:%s' "${owner%/*}" "${owner#*/}"
 }
 
 do_scan() {
-    while IFS= read -r line; do
+    while IFS= read -r line <&3; do
         file=${line##*$( printf '\t' )}
         file=/${file%% *}
         [ -e "$file" ] || continue
-        mode_orig=${line%$( printf '\t' )*}
-        mode=$( stat -c "%A$( printf '\t' )%U/%G" "$file" )
-        if [ "$mode" != "$mode_orig" ]; then
-            COUNT=$(( COUNT + 1 ))
+        # original state
+        mode_orig=${line%%$( printf '\t' )*}
+        owner_orig=${line#*$( printf '\t' )}
+        owner_orig=${owner_orig%$( printf '\t' )*}
+        # current state
+        mode=$( stat -c '%A' "$file" )
+        owner=$( stat -c '%U/%G' "$file" )
+        if [ "$mode" != "$mode_orig" ] || [ "$owner" != "$owner_orig" ]; then
             printf '\r%b' "\033[2K"
-            if [ "$PKG" = "$PKG_PREV" ]; then
-                printf '%s\t%b\t%s\n' "$mode_orig" "$RED$mode$NORMAL" "$file"
-            else
-                printf '%b\n%s\t%b\t%s\n' "$BOLD$PKG:$NORMAL" "$mode_orig" "$RED$mode$NORMAL" "$file"
-                PKG_PREV=$PKG
+            if [ "$mode" != "$mode_orig" ]; then
+                M_ERR_COUNT=$(( M_ERR_COUNT + 1 ))
+                if [ "$PKG" = "$PKG_PREV" ]; then
+                    printf '  %s\t%b\t%s\n' "$mode_orig" "$RED$mode$NORMAL" "$file"
+                else
+                    printf '%b\n  %s\t%b\t%s\n' "$BOLD$PKG:$NORMAL" "$mode_orig" "$RED$mode$NORMAL" "$file"
+                    PKG_PREV=$PKG
+                fi
+                if [ $FIX -eq 0 ]; then
+                    printf '    Fix permissions? ( y = Yes, Enter = No ): '
+                    read -r input
+                fi
+                if [ $FIX -gt 0 ] || [ "$input" = 'y' ] || [ "$input" = 'Y' ]; then
+                    printf '    Results: '
+                    if chmod "$( parse_mode "$mode_orig" )" "$file"; then
+                        printf '%b\n' "${GREEN}OK$NORMAL"
+                        M_FIXED=$(( M_FIXED + 1 ))
+                    fi
+                fi
             fi
-            if [ $FIX -eq 1 ]; then
-                printf '%s' "Fix Results: "
-                if chmod "$( parse_mode "$mode_orig" )" "$file"; then
-                    printf '%b\n' "${GREEN}OK$NORMAL"
-                    FIXED=$(( FIXED + 1 ))
+            if [ "$owner" != "$owner_orig" ]; then
+                O_ERR_COUNT=$(( O_ERR_COUNT + 1 ))
+                if [ "$PKG" = "$PKG_PREV" ]; then
+                    printf '  %s\t%b\t%s\n' "$owner_orig" "$RED$owner$NORMAL" "$file"
+                else
+                    printf '%b\n  %s\t%b\t%s\n' "$BOLD$PKG:$NORMAL" "$owner_orig" "$RED$owner$NORMAL" "$file"
+                    PKG_PREV=$PKG
+                fi
+                if [ $FIX -lt 2 ]; then
+                    printf '    Fix ownership? ( y = Yes, Enter = No ): '
+                    read -r input
+                fi
+                if [ $FIX -eq 2 ] || [ "$input" = 'y' ] || [ "$input" = 'Y' ]; then
+                    printf '    Results: '
+                    if chown "$( parse_owner "$owner_orig" )" "$file"; then
+                        printf '%b\n' "${GREEN}OK$NORMAL"
+                        O_FIXED=$(( O_FIXED + 1 ))
+                    fi
                 fi
             fi
         fi
-    done < "$1"
+    done 3< "$1"
 }
 
-[ $FIX -gt 0 ] || echo "Info: Run prmck with fix mode OFF"
+[ "$( id -u )" -eq 0 ] || printf 'Info: Running prmck in safe mode\n\n'
 
 port_dir=
 for prtdir in $( grep -i '^\s*prtdir' /etc/prt-get.conf | sed 's/prtdir//i; s/\s//g' ); do
     prtdir=${prtdir%/*}
     [ "$prtdir" = "$port_dir" ] && continue
-    [ "$arg" = "*" ] || [ -d "$prtdir/$arg" ] || { echo "${RED}Error$NORMAL: Invalid options or port"; exit 1; }
+    if [ "$arg" != '*' ] && [ ! -d "$prtdir/$arg" ]; then
+        printf '%b: Invalid options or port\n' "${RED}Error$NORMAL";
+        exit 1;
+    fi
     for PKG in $( prt-get listinst ); do
-        for footprint in "$prtdir"/$arg/"$PKG"/.footprint; do
+        for footprint in $prtdir/$arg/$PKG/.footprint; do
             [ -f "$footprint" ] || continue
-            SCAN=$(( SCAN + 1 ))
-            printf '%b' "${BOLD}Scanning:$NORMAL $PKG"
+            printf '%b %s' "${BOLD}Scanning:$NORMAL" "$PKG"
             do_scan "$footprint"
             printf '\r%b' "\033[2K"
+            PKG_SCANNED=$(( PKG_SCANNED + 1 ))
         done
     done
     port_dir=$prtdir
 done
 
-if [ $SCAN -lt 1 ]; then
-    printf '%b\n' "${RED}Error$NORMAL: The scan was never performed"
+if [ $PKG_SCANNED -gt 0 ]; then
+    [ $PKG_SCANNED -eq 1 ] && S=
+    n='\n'; [ $M_ERR_COUNT -gt 0 ] || [ $O_ERR_COUNT -gt 0 ] || n=
+    printf '%b%b package%s have been scanned.\n' "$n" "$PKG_SCANNED" "$S"
+else
+    printf '%b: The scan was never performed\n' "${RED}Error$NORMAL"
     exit 1
 fi
-if [ $COUNT -gt 0 ]; then
-    [ $FIXED -gt 0 ] && FIXED="$GREEN$FIXED$NORMAL"
-    printf '%b\n' "Found $RED$COUNT$NORMAL files with broken permissions. $FIXED fixed."
+if [ $M_ERR_COUNT -gt 0 ] || [ $O_ERR_COUNT -gt 0 ]; then
+    if [ $M_ERR_COUNT -gt 0 ]; then
+        [ $M_ERR_COUNT -eq 1 ] && S=
+        [ $M_FIXED -gt 0 ] && M_FIXED=$GREEN$M_FIXED$NORMAL
+        printf '%b file%s with broken permissions found. %b fixed.\n' "$RED$M_ERR_COUNT$NORMAL" "$S" "$M_FIXED"
+    fi
+    if [ $O_ERR_COUNT -gt 0 ]; then
+        [ $O_ERR_COUNT -eq 1 ] && S=
+        [ $O_FIXED -gt 0 ] && O_FIXED=$GREEN$O_FIXED$NORMAL
+        printf '%b file%s with broken ownership found. %b fixed.\n' "$RED$O_ERR_COUNT$NORMAL" "$S" "$O_FIXED"
+    fi
 else
-    printf '%b\n' "${GREEN}Good$NORMAL. No problems were found."
+    printf '%b. No problems were found.\n' "${GREEN}Good$NORMAL"
 fi
+
+exit 0

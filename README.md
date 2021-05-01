@@ -1,6 +1,6 @@
 prmck
 =====
-**prmck** is a tool for [CRUX Linux](https://crux.nu/) that allows you check if any file system permissions are broken or different from the original (.footprint).
+**prmck** is a tool for [CRUX](https://crux.nu/) that allows you to check if any file system permissions are broken or different from the original (.footprint).
 
 Usage
 -----
@@ -17,10 +17,6 @@ Help:
 
     $ prmck -h
 
-Screenshot
-----------
-![prmck](screenshot.png)
-
-Video
------
-[ ![prmck](http://img.youtube.com/vi/X7UemeNxxrA/0.jpg) ](http://www.youtube.com/watch?v=X7UemeNxxrA)
+Demo
+----
+![prmck](prmck.gif)
