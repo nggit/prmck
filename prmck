@@ -3,12 +3,15 @@
 # prmck - Fix File Permissions (For CRUX / prt-get).
 # https://github.com/nggit/prmck
 # Copyright (c) 2020 nggit.
-#
+
+# ---------
+# variables
+# ---------
 RED='\033[91m'
 GREEN='\033[92m'
 BOLD='\033[1m'
 NORMAL='\033[0m'
-################
+
 PKG=
 PKG_PREV=
 PKG_SCANNED=0
@@ -20,13 +23,11 @@ M_FIXED=0
 O_FIXED=0
 S=s
 
-for arg in "$@"; do
-    case $arg in
-        all)                arg='*';;
-        -f|--fix)           FIX=1;;
-        -ff)                FIX=2;;
-        -p|--pkg|--package) IS_PKG=1;;
-        -h|--help)          cat << EOL
+# ---------
+# functions
+# ---------
+show_help() {
+    cat << EOF
 prmck - https://github.com/nggit/prmck
 
 Usage:
@@ -42,25 +43,15 @@ Port:
   all, core, opt, etc.
 
 Example: prmck core, prmck -f core, prmck -f -p firefox, etc.
-EOL
-exit;;
-    esac
-done
+EOF
+}
 
-if [ -z "$arg" ]; then
-    echo 'prmck takes at least 1 argument. Use the "-h" or "--help" options for help.'
-    exit 22
-fi
-
-###########
-# functions
-###########
 parse_mode() {
     u=; g=; o=;
     mode=$1
     while [ ${#mode} -gt 0 ]; do
         next=${mode#?}
-        c=${mode%$next}
+        c=${mode%"$next"}
         mode=$next
         [ ${#mode} -gt 8 ] && continue
         [ "$c" = '-' ] && c=
@@ -100,13 +91,13 @@ do_scan() {
     count=0
     while IFS= read -r line <&3; do
         count=$(( count + 1 ))
-        file=${line##*$( printf '\t' )}
+        file=${line##*"$( printf '\t' )"}
         file=/${file%% *}
         [ -e "$file" ] || continue
         # original state
-        mode_orig=${line%%$( printf '\t' )*}
-        owner_orig=${line#*$( printf '\t' )}
-        owner_orig=${owner_orig%$( printf '\t' )*}
+        mode_orig=${line%%"$( printf '\t' )"*}
+        owner_orig=${line#*"$( printf '\t' )"}
+        owner_orig=${owner_orig%"$( printf '\t' )"*}
         # current state
         mode=$( stat -c '%A' "$file" )
         owner=$( stat -c '%U/%G' "$file" )
@@ -163,9 +154,25 @@ do_scan() {
     printf '\r%b' "\033[2K"
 }
 
-######
+# -----------------
+for arg in "$@"; do
+    case $arg in
+        all)                arg='*';;
+        -f|--fix)           FIX=1;;
+        -ff)                FIX=2;;
+        -p|--pkg|--package) IS_PKG=1;;
+        -h|--help)          show_help; exit 0;;
+    esac
+done
+
+if [ -z "$arg" ]; then
+    echo 'prmck takes at least 1 argument. Use the "-h" or "--help" options for help.' 1>&2
+    exit 1
+fi
+
+# ----
 # scan
-######
+# ----
 [ "$( id -u )" -eq 0 ] || printf 'Info: Running prmck in safe mode\n\n'
 
 if [ "$IS_PKG" -eq 1 ]; then
@@ -177,12 +184,13 @@ if [ "$IS_PKG" -eq 1 ]; then
     fi
 else
     port_dir=
+    # shellcheck disable=SC2013
     for prtdir in $( grep -i '^\s*prtdir' /etc/prt-get.conf | sed 's/prtdir//i; s/\s//g' ); do
         prtdir=${prtdir%/*}
         [ "$prtdir" = "$port_dir" ] && continue
         if [ "$arg" != '*' ] && [ ! -d "$prtdir/$arg" ]; then
-            printf '%b: Invalid options or port\n' "${RED}Error$NORMAL";
-            exit 1;
+            printf '%b: Invalid options or port\n' "${RED}Error$NORMAL" 1>&2
+            exit 1
         fi
         for PKG in $( prt-get listinst ); do
             for footprint in $prtdir/$arg/$PKG/.footprint; do
@@ -195,15 +203,15 @@ else
     done
 fi
 
-##############
+# ------------
 # scan reports
-##############
+# ------------
 if [ $PKG_SCANNED -gt 0 ]; then
     [ $PKG_SCANNED -eq 1 ] && S=
     n='\n'; [ $M_ERR_COUNT -gt 0 ] || [ $O_ERR_COUNT -gt 0 ] || n=
     printf '%b%b package%s have been scanned.\n' "$n" "$PKG_SCANNED" "$S"
 else
-    printf '%b: The scan was never performed\n' "${RED}Error$NORMAL"
+    printf '%b: The scan was never performed\n' "${RED}Error$NORMAL" 1>&2
     exit 1
 fi
 if [ $M_ERR_COUNT -gt 0 ]; then
