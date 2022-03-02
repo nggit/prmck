@@ -49,12 +49,15 @@ EOF
 parse_mode() {
     u=; g=; o=;
     mode=$1
+
     while [ ${#mode} -gt 0 ]; do
         next=${mode#?}
         c=${mode%"$next"}
         mode=$next
+
         [ ${#mode} -gt 8 ] && continue
         [ "$c" = '-' ] && c=
+
         if [ ${#mode} -eq 6 ] || [ ${#mode} -eq 3 ]; then
             if [ "$c" = 's' ]; then
                 c=xs
@@ -70,6 +73,7 @@ parse_mode() {
                 c=t
             fi
         fi
+
         if [ ${#mode} -gt 5 ]; then
             u=$u$c
         elif [ ${#mode} -gt 2 ]; then
@@ -78,6 +82,7 @@ parse_mode() {
             o=$o$c
         fi
     done
+
     printf 'u=%s,g=%s,o=%s' "$u" "$g" "$o"
 }
 
@@ -89,35 +94,44 @@ parse_owner() {
 do_scan() {
     total=$( printf '%d' "$( grep -cs '/' "$1" )" )
     count=0
+
     while IFS= read -r line <&3; do
         count=$(( count + 1 ))
         file=${line##*"$( printf '\t' )"}
         file=/${file%% *}
+
         [ -e "$file" ] || continue
+
         # original state
         mode_orig=${line%%"$( printf '\t' )"*}
         owner_orig=${line#*"$( printf '\t' )"}
         owner_orig=${owner_orig%"$( printf '\t' )"*}
+
         # current state
         mode=$( stat -c '%A' "$file" )
         owner=$( stat -c '%U/%G' "$file" )
         printf '\r%b%b %-22s%s' "\033[2K" "${BOLD}Scanning:$NORMAL" "$PKG" "$(( 100 / (total / count) ))%"
+
         if [ "$mode" != "$mode_orig" ]; then
             M_ERR_COUNT=$(( M_ERR_COUNT + 1 ))
             printf '\r%b' "\033[2K"
+
             if [ "$PKG" = "$PKG_PREV" ]; then
                 printf '  %s\t%b\t%s\n' "$mode_orig" "$RED$mode$NORMAL" "$file"
             else
                 printf '%b\n  %s\t%b\t%s\n' "$BOLD$PKG:$NORMAL" "$mode_orig" "$RED$mode$NORMAL" "$file"
                 PKG_PREV=$PKG
             fi
+
             if [ $FIX -eq 0 ]; then
                 printf '    Fix permissions? ( 1 = Yes, Enter = No ): '
                 read -r input
             fi
+
             if [ $FIX -gt 0 ] || [ "$input" = 1 ]; then
                 printf '    -> '
                 chmod=$( chmod "$( parse_mode "$mode_orig" )" "$file" 2>&1 )
+
                 if [ -z "$chmod" ]; then
                     printf '%b\n' "${GREEN}OK$NORMAL"
                     M_FIXED=$(( M_FIXED + 1 ))
@@ -126,22 +140,27 @@ do_scan() {
                 fi
             fi
         fi
+
         if [ "$owner" != "$owner_orig" ]; then
             O_ERR_COUNT=$(( O_ERR_COUNT + 1 ))
             printf '\r%b' "\033[2K"
+
             if [ "$PKG" = "$PKG_PREV" ]; then
                 printf '  %s\t%b\t%s\n' "$owner_orig" "$RED$owner$NORMAL" "$file"
             else
                 printf '%b\n  %s\t%b\t%s\n' "$BOLD$PKG:$NORMAL" "$owner_orig" "$RED$owner$NORMAL" "$file"
                 PKG_PREV=$PKG
             fi
+
             if [ $FIX -lt 2 ]; then
                 printf '    Fix ownership? ( 1 = Yes, Enter = No ): '
                 read -r input
             fi
+
             if [ $FIX -eq 2 ] || [ "$input" = 1 ]; then
                 printf '    -> '
                 chown=$( chown "$( parse_owner "$owner_orig" )" "$file" 2>&1 )
+
                 if [ -z "$chown" ]; then
                     printf '%b\n' "${GREEN}OK$NORMAL"
                     O_FIXED=$(( O_FIXED + 1 ))
@@ -151,6 +170,7 @@ do_scan() {
             fi
         fi
     done 3< "$1"
+
     printf '\r%b' "\033[2K"
 }
 
@@ -178,20 +198,25 @@ fi
 if [ "$IS_PKG" -eq 1 ]; then
     PKG=$arg
     footprint=$( prt-get path "$PKG" 2> /dev/null )/.footprint
+
     if [ -f "$footprint" ]; then
         do_scan "$footprint"
         PKG_SCANNED=1
     fi
 else
     port_dir=
+
     # shellcheck disable=SC2013
     for prtdir in $( grep -i '^\s*prtdir' /etc/prt-get.conf | sed 's/prtdir//i; s/\s//g' ); do
         prtdir=${prtdir%/*}
+
         [ "$prtdir" = "$port_dir" ] && continue
+
         if [ "$arg" != '*' ] && [ ! -d "$prtdir/$arg" ]; then
             printf '%b: Invalid options or port\n' "${RED}Error$NORMAL" 1>&2
             exit 1
         fi
+
         for PKG in $( prt-get listinst ); do
             for footprint in $prtdir/$arg/$PKG/.footprint; do
                 [ -f "$footprint" ] || continue
@@ -199,6 +224,7 @@ else
                 PKG_SCANNED=$(( PKG_SCANNED + 1 ))
             done
         done
+
         port_dir=$prtdir
     done
 fi
@@ -214,11 +240,13 @@ else
     printf '%b: The scan was never performed\n' "${RED}Error$NORMAL" 1>&2
     exit 1
 fi
+
 if [ $M_ERR_COUNT -gt 0 ]; then
     [ $M_ERR_COUNT -eq 1 ] && S=
     [ $M_FIXED -gt 0 ] && M_FIXED=$GREEN$M_FIXED$NORMAL
     printf '%b file%s with broken permissions found. %b fixed.\n' "$RED$M_ERR_COUNT$NORMAL" "$S" "$M_FIXED"
 fi
+
 if [ $O_ERR_COUNT -gt 0 ]; then
     [ $O_ERR_COUNT -eq 1 ] && S=
     [ $O_FIXED -gt 0 ] && O_FIXED=$GREEN$O_FIXED$NORMAL
